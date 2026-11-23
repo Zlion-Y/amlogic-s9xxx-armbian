@@ -3,11 +3,11 @@
 # Copyright (C) 2021 https://github.com/ophub/amlogic-s9xxx-armbian
 #==========================================================================
 
-name: Package and verify final W152D USB image
+name: Verify the standard W152D eMMC build
 
 on:
   push:
-    branches: [w152d-final-action]
+    branches: [w152d-emmc-standard-audit]
   workflow_dispatch:
 
 env:
@@ -104,7 +104,7 @@ jobs:
           curl -fsSL --retry 3 --max-time 300 \
               'https://github.com/ophub/amlogic-s9xxx-armbian/releases/download/Armbian_bookworm_arm64_server_2026.11/Armbian_26.11.0-trunk_bookworm_arm64_6.18.64.img.gz' -o "$base"
           printf '%s  %s\n' 'f28cfcd7cef82f2eb4b650adbd4b1126cef7f07a692e03d50005cba8b740ff32' "$base" | sha256sum -c -
-          echo "build_tag=W152D-final-${{ github.run_id }}" >> "$GITHUB_ENV"
+          echo "build_tag=W152D-emmc-standard-${{ github.run_id }}" >> "$GITHUB_ENV"
           echo "status=success" >> ${GITHUB_OUTPUT}
 
       - name: Fetch synced firmware and U-Boot from the forks
@@ -124,12 +124,12 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          release='repos/Zlion-Y/amlogic-s9xxx-armbian/releases/tags/kernel_w152d-final-89175fd'
+          release='repos/Zlion-Y/amlogic-s9xxx-armbian/releases/tags/kernel_w152d-emmc-standard-89175fd'
           sha=$(gh api "$release" --jq '.assets[] | select(.name == "6.12.118.tar.gz") | .digest')
           [[ "$sha" =~ ^sha256:[a-f0-9]{64}$ ]]
-          gh release download 'kernel_w152d-final-89175fd' --repo Zlion-Y/amlogic-s9xxx-armbian --pattern '6.12.118.tar.gz' --dir /builder
+          gh release download 'kernel_w152d-emmc-standard-89175fd' --repo Zlion-Y/amlogic-s9xxx-armbian --pattern '6.12.118.tar.gz' --dir /builder
           printf '%s  %s\n' "${sha#sha256:}" /builder/6.12.118.tar.gz | sha256sum -c -
-          dest='build-armbian/kernel/w152d-final-89175fd/6.12.118'
+          dest='build-armbian/kernel/w152d-emmc-standard-89175fd/6.12.118'
           mkdir -p "$dest"
           tar -xf /builder/6.12.118.tar.gz --strip-components=1 -C "$dest"
           (cd "$dest" && sha256sum -c sha256sums)
@@ -144,7 +144,7 @@ jobs:
           armbian_kernel: 6.12.118
           auto_kernel: false
           kernel_repo: Zlion-Y/amlogic-s9xxx-armbian
-          kernel_usage: w152d-final-89175fd
+          kernel_usage: w152d-emmc-standard-89175fd
           armbian_fstype: ext4
           builder_name: ophub
 
@@ -177,7 +177,7 @@ jobs:
             ### Armbian Image Information
             - Default username: `root`
             - Default password: `1234`
-            - W152D USB audit image. Physical boot verification is separate.
+            - W152D eMMC installation test image from the standard build.
             - Update command: `armbian-update`
             ### Applicable Platform
             - 🐧 `arm64`
@@ -249,14 +249,14 @@ jobs:
         id: kernelhash
         run: |
           # Get the latest source hash from the kernel repository
-          api_url="https://api.github.com/repos/Zlion-Y/linux-6.12.y/git/ref/heads/w152d-6.12-final-audit"
+          api_url="https://api.github.com/repos/Zlion-Y/linux-6.12.y/git/ref/heads/w152d-emmc-standard-audit"
           source_hash=$(curl -fsSL -m 20 \
               -H "Accept: application/vnd.github+json" \
               -H "Authorization: Bearer ${{ secrets.GITHUB_TOKEN }}" \
               ${api_url} |
               jq -r '.object.sha'
           )
-          [[ "${source_hash}" == "758168213e88c043c63be36dc3f52a9483299207" ]] || { echo "Unexpected kernel source: ${source_hash}"; exit 1; }
+          [[ "${source_hash}" == "e5788dbe305c4bade01bc1201a210413952fe184" ]] || { echo "Unexpected kernel source: ${source_hash}"; exit 1; }
           echo "source_hash=${source_hash}" >> ${GITHUB_ENV}
           echo "status=success" >> ${GITHUB_OUTPUT}
 
@@ -273,7 +273,7 @@ jobs:
         if: ${{ steps.disk.outputs.status == 'success' && !cancelled() }}
         with:
           build_target: kernel
-          kernel_source: Zlion-Y/linux-6.12.y@w152d-6.12-final-audit
+          kernel_source: Zlion-Y/linux-6.12.y@w152d-emmc-standard-audit
           kernel_version: 6.12.y
           kernel_auto: true
           delete_source: true
@@ -289,7 +289,7 @@ jobs:
         uses: ophub/upload-to-releases@main
         if: ${{ env.PACKAGED_STATUS == 'success' && !cancelled() }}
         with:
-          tag: kernel_w152d-final-89175fd
+          tag: kernel_w152d-emmc-standard-89175fd
           artifacts: ${{ env.PACKAGED_OUTPUTPATH }}/*
           allow_updates: true
           remove_artifacts: false

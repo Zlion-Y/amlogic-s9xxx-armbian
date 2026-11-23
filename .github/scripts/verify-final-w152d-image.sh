@@ -29,8 +29,16 @@ cmp "$boot/aml_autoscript" "$board/bootfs/aml_autoscript"
 test ! -e "$boot/u-boot.ext"
 grep -Fx 'LINUX=/zImage' "$boot/uEnv.txt"
 grep -Fx 'INITRD=/uInitrd' "$boot/uEnv.txt"
-grep -Fx 'FDT=/dtb/amlogic/meson-gxlx4-w152d.dtb' "$boot/uEnv.txt"
+grep -Fx 'FDT=/dtb/amlogic/meson-gxlx4-w152d-emmc.dtb' "$boot/uEnv.txt"
 test -s "$boot/dtb/amlogic/meson-gxlx4-w152d.dtb"
+test -s "$boot/dtb/amlogic/meson-gxlx4-w152d-emmc.dtb"
+cmp "$boot/boot-emmc.scr" "$board/bootfs/boot-emmc.scr"
+cmp "$boot/boot-emmc.cmd" "$board/bootfs/boot-emmc.cmd"
+mkimage -l "$boot/boot-emmc.scr"
+cmp "$root/usr/sbin/armbian-install" "$source_tree/build-armbian/armbian-files/platform-files/amlogic/rootfs/usr/sbin/armbian-install"
+test -x "$root/usr/sbin/armbian-install"
+bash -n "$root/usr/sbin/armbian-install"
+if grep -q 'blkdevparts=' "$boot/uEnv.txt"; then exit 1; fi
 uuid=$(blkid -p -s UUID -o value "${loop}p2")
 grep -E "^APPEND=.*root=UUID=$uuid .*console=ttyAML0,921600n8" "$boot/uEnv.txt"
 grep -E "^UUID=$uuid[[:space:]]+/[[:space:]]+ext4" "$root/etc/fstab"
@@ -62,4 +70,9 @@ printf '%s  %s\n' f77c4dfab1ff114113586cc9ff193869de8bab2c4205e4a0ce5a57be456a91
 119b87ce30875734a67462f7293fb8fe85acf3270fe8b78c978ae24be7715a80  uwe5622/wcnmodem.bin
 SUMS
 )
-echo W152D_FINAL_ACTION_IMAGE_VERIFIED
+echo W152D_EMMC_STANDARD_ACTION_IMAGE_VERIFIED
+
+for path in aml_autoscript boot-emmc.scr boot-emmc.cmd zImage uInitrd dtb/amlogic/meson-gxlx4-w152d-emmc.dtb; do
+    sha256sum "$boot/$path"
+done
+sha256sum "$root/usr/sbin/armbian-install"
