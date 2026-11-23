@@ -7,7 +7,7 @@ name: Verify the standard W152D eMMC build
 
 on:
   push:
-    branches: [w152d-emmc-standard-audit]
+    branches: [w152d-emmc-standard-package]
   workflow_dispatch:
 
 env:
@@ -30,7 +30,7 @@ jobs:
           echo "matrix=${MATRIX}" >> "${GITHUB_OUTPUT}"
 
   build:
-    needs: [setup, build-kernel]
+    needs: setup
     runs-on: ubuntu-26.04-arm
     if: ${{ github.event.repository.owner.id == github.event.sender.id }}
     permissions:
@@ -119,19 +119,19 @@ jobs:
           cp -af --update=none --no-preserve=ownership /builder/firmware-deps/firmware/. "$firmware/"
           cp -af --update=none --no-preserve=ownership /builder/uboot-deps/u-boot/. build-armbian/u-boot/
 
-      - name: Download the final kernel from this run
+      - name: Download the verified kernel from the compilation run
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
           release='repos/Zlion-Y/amlogic-s9xxx-armbian/releases/tags/kernel_w152d-emmc-standard-89175fd'
-          sha=$(gh api "$release" --jq '.assets[] | select(.name == "6.12.118.tar.gz") | .digest')
-          [[ "$sha" =~ ^sha256:[a-f0-9]{64}$ ]]
-          gh release download 'kernel_w152d-emmc-standard-89175fd' --repo Zlion-Y/amlogic-s9xxx-armbian --pattern '6.12.118.tar.gz' --dir /builder
-          printf '%s  %s\n' "${sha#sha256:}" /builder/6.12.118.tar.gz | sha256sum -c -
+          sha=$(gh api "$release" --jq '.assets[] | select(.name == "6.12.118-ophub.tar.gz") | .digest')
+          test "$sha" = sha256:bd22cc919a0475f377135c2ab083624741fe54e55e15323411582887b899f025
+          gh release download 'kernel_w152d-emmc-standard-89175fd' --repo Zlion-Y/amlogic-s9xxx-armbian --pattern '6.12.118-ophub.tar.gz' --dir /builder
+          printf '%s  %s\n' "${sha#sha256:}" /builder/6.12.118-ophub.tar.gz | sha256sum -c -
           dest='build-armbian/kernel/w152d-emmc-standard-89175fd/6.12.118'
           mkdir -p "$dest"
-          tar -xf /builder/6.12.118.tar.gz --strip-components=1 -C "$dest"
+          tar -xf /builder/6.12.118-ophub.tar.gz --strip-components=1 -C "$dest"
           (cd "$dest" && sha256sum -c sha256sums)
 
       - name: Rebuild Armbian [ ${{ matrix.release }} ]
@@ -184,124 +184,3 @@ jobs:
             - 🐋 Docker image: https://hub.docker.com/u/ophub
 
 
-  build-kernel:
-    runs-on: ubuntu-26.04-arm
-    if: ${{ github.event.repository.owner.id == github.event.sender.id }}
-    permissions:
-      contents: write
-
-    name: compile-kernel-6.12.y
-
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v6
-        with:
-          repository: Zlion-Y/kernel
-          ref: ba00be60d59300bd93633218a8905829d6cabd72
-          persist-credentials: false
-
-      - name: Initialize the build environment
-        id: init
-        env:
-          DEBIAN_FRONTEND: noninteractive
-        run: |
-          docker rmi -f $(docker images -q) 2>/dev/null || true
-          [[ -n "${AGENT_TOOLSDIRECTORY}" ]] && sudo rm -rf "${AGENT_TOOLSDIRECTORY}"
-          sudo rm -rf /usr/share/dotnet /usr/local/lib/android 2>/dev/null
-          sudo swapoff -a
-          sudo rm -f /swapfile /mnt/swapfile
-          sudo apt-get -y update
-          sudo apt-get -y purge azure-cli ghc* zulu* llvm* firefox google* dotnet* powershell openjdk* mongodb* moby* || true
-          sudo apt-get -y install $(curl -fsSL https://ophub.org/ubuntu2604-build-armbian-depends)
-          sudo systemctl daemon-reload
-          #sudo apt-get -y full-upgrade
-          sudo apt-get -y autoremove --purge
-          sudo apt-get clean
-          sudo sed -i '/NVM_DIR/d;/skel/d' /root/{.bashrc,.profile}
-          sudo rm -rf ~/{.cargo,.dotnet,.rustup}
-          sudo timedatectl set-timezone "${TZ:-Etc/UTC}"
-          sudo ntpdate ntp.ubuntu.com 0.pool.ntp.org || true
-          sudo timedatectl set-ntp true
-          date -u
-          timedatectl status || true
-          echo "status=success" >> ${GITHUB_OUTPUT}
-
-      - name: Create virtual disk for extended storage
-        id: disk
-        run: |
-          # Get available space in exact GB
-          root_avail=$(df --block-size=1G / | tail -1 | awk '{print $4}')
-          root_size=$(( root_avail - 4 ))
-          [[ "${root_size}" -gt 0 ]] || { echo "Error: Insufficient space on /: ${root_avail}G available"; exit 1; }
-
-          sudo truncate -s "${root_size}"G /root.img
-          build_dev=$(sudo losetup --find --show /root.img)
-          echo "Using /: ${root_size}G"
-
-          sudo mkfs.xfs -f -i sparse=0 -b size=4096 "${build_dev}"
-          sudo mkdir -p /builder
-          sudo mount "${build_dev}" /builder
-          sudo chown -R runner:runner /builder
-          df -Th
-          echo "status=success" >> ${GITHUB_OUTPUT}
-
-      - name: Get kernel source commit hash
-        id: kernelhash
-        run: |
-          # Get the latest source hash from the kernel repository
-          api_url="https://api.github.com/repos/Zlion-Y/linux-6.12.y/git/ref/heads/w152d-emmc-standard-audit"
-          source_hash=$(curl -fsSL -m 20 \
-              -H "Accept: application/vnd.github+json" \
-              -H "Authorization: Bearer ${{ secrets.GITHUB_TOKEN }}" \
-              ${api_url} |
-              jq -r '.object.sha'
-          )
-          [[ "${source_hash}" == "e5788dbe305c4bade01bc1201a210413952fe184" ]] || { echo "Unexpected kernel source: ${source_hash}"; exit 1; }
-          echo "source_hash=${source_hash}" >> ${GITHUB_ENV}
-          echo "status=success" >> ${GITHUB_OUTPUT}
-
-      - name: Cache ccache
-        uses: actions/cache@v5
-        with:
-          path: /builder/ccache
-          key: kernel-stable-gcc-6.12.y-${{ env.source_hash }}
-          restore-keys: |
-            kernel-stable-gcc-6.12.y-
-
-      - name: Compile the kernel [ 6.12.y ]
-        uses: ophub/amlogic-s9xxx-armbian@f816cfcca674a312985cb76271c9d28753d6dd76
-        if: ${{ steps.disk.outputs.status == 'success' && !cancelled() }}
-        with:
-          build_target: kernel
-          kernel_source: Zlion-Y/linux-6.12.y@w152d-emmc-standard-audit
-          kernel_version: 6.12.y
-          kernel_auto: true
-          delete_source: true
-          kernel_package: all
-          kernel_toolchain: gcc
-          kernel_sign: -ophub
-          kernel_config: kernel-config/release/stable
-          ccache_clear: false
-          docker_hostpath: /builder
-          docker_image: ophub/armbian-resolute:arm64
-
-      - name: Upload Kernel to Release
-        uses: ophub/upload-to-releases@main
-        if: ${{ env.PACKAGED_STATUS == 'success' && !cancelled() }}
-        with:
-          tag: kernel_w152d-emmc-standard-89175fd
-          artifacts: ${{ env.PACKAGED_OUTPUTPATH }}/*
-          allow_updates: true
-          remove_artifacts: false
-          replaces_artifacts: true
-          make_latest: false
-          prerelease: true
-          gh_token: ${{ secrets.GITHUB_TOKEN }}
-          body: |
-            - These are Mainline `stable` kernels that provide support for `Armbian`, `OpenWrt` and `FnNAS`.
-            - It works with most `Amlogic`, `Rockchip`, and `Allwinner` devices. For specific details, please refer to the instructions on the homepage of each system's repository.
-
-            <br />
-
-            - 这些是主线稳定内核，为 `Armbian`、`OpenWrt` 和 `FnNAS` 提供支持。
-            - 适用于 `amlogic`，`rockchip`，`allwinner` 的大部分设备，具体可以参考各系统仓库首页的说明。
